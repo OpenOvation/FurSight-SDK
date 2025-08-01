@@ -1,0 +1,193 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test-python:
+    name: Test Python SDK
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9, '3.10', 3.11, 3.12]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('python/requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      working-directory: ./python
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+        pip install pytest pytest-cov pytest-mock requests-mock
+
+    - name: Lint with flake8
+      working-directory: ./python
+      run: |
+        pip install flake8
+        # Stop the build if there are Python syntax errors or undefined names
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Exit-zero treats all errors as warnings
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
+
+    - name: Format check with black
+      working-directory: ./python
+      run: |
+        pip install black
+        black --check --diff .
+
+    - name: Type check with mypy
+      working-directory: ./python
+      run: |
+        pip install mypy types-requests
+        mypy fursight --ignore-missing-imports
+
+    - name: Test with pytest
+      working-directory: ./python
+      run: |
+        pytest --cov=fursight --cov-report=xml --cov-report=html --cov-fail-under=80
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./python/coverage.xml
+        flags: python
+        name: python-${{ matrix.python-version }}
+
+  test-javascript:
+    name: Test JavaScript SDK
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [14, 16, 18, 20]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: javascript/package-lock.json
+
+    - name: Install dependencies
+      working-directory: ./javascript
+      run: npm ci
+
+    - name: Lint with ESLint
+      working-directory: ./javascript
+      run: npm run lint
+
+    - name: Type check with TypeScript
+      working-directory: ./javascript
+      run: npm run type-check
+
+    - name: Build
+      working-directory: ./javascript
+      run: npm run build
+
+    - name: Test with Jest
+      working-directory: ./javascript
+      run: npm test -- --coverage --coverageReporters=text-lcov --coverageReporters=html
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./javascript/coverage/lcov.info
+        flags: javascript
+        name: javascript-${{ matrix.node-version }}
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [test-python, test-javascript]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: javascript/package-lock.json
+
+    - name: Install Python SDK
+      working-directory: ./python
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+
+    - name: Install JavaScript SDK
+      working-directory: ./javascript
+      run: |
+        npm ci
+        npm run build
+
+    - name: Run integration tests
+      env:
+        FURSIGHT_API_KEY: ${{ secrets.FURSIGHT_TEST_API_KEY }}
+        FURSIGHT_API_URL: ${{ secrets.FURSIGHT_TEST_API_URL }}
+      run: |
+        # Run Python integration tests
+        cd python && python -m pytest tests/integration/ -v
+        
+        # Run JavaScript integration tests
+        cd ../javascript && npm run test:integration
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: Python Security Check
+      working-directory: ./python
+      run: |
+        python -m pip install --upgrade pip
+        pip install safety bandit
+        safety check
+        bandit -r fursight/
+
+    - name: JavaScript Security Check
+      working-directory: ./javascript
+      run: |
+        npm audit --audit-level=high
