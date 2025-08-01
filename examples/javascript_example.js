@@ -7,6 +7,7 @@
 
 async function main() {
   // Get API key from environment or use test key
+  // Email admin@fursight.ai to request your own API key
   const apiKey = process.env.FURSIGHT_API_KEY || 'test_key_individual_developer_2024';
   const baseUrl = 'https://bailey.fursight.ai';
   

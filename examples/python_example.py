@@ -13,6 +13,7 @@ def main():
     """Basic example using the FurSight API"""
     
     # Get API key from environment or use test key
+    # Email admin@fursight.ai to request your own API key
     api_key = os.getenv('FURSIGHT_API_KEY', 'test_key_individual_developer_2024')
     base_url = "https://bailey.fursight.ai"
     

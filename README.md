@@ -35,7 +35,7 @@ console.log(`Recommendation: ${result.recommendation}`);
 ## 🔑 Getting API Keys
 
 ### For Individual Developers & Testing
-- **Test API Key**: `test_key_individual_developer_2024`
+- **Test API Key**: `test_key_individual_developer_2024` *(Email admin@fursight.ai to request your own API key)*
 - **Rate Limit**: 10 requests per day
 - **Perfect for**: Learning, testing, building integrations
 
